@@ -1,0 +1,27 @@
+# Copy to terraform.tfvars and edit. terraform.tfvars is gitignored.
+
+aws_region  = "us-east-1"
+aws_profile = "academy"
+name_prefix = "lab4"
+
+# Restrict who can reach the ALB. Your own address is safer than the default:
+#   curl -s https://checkip.amazonaws.com
+# allowed_cidr = "203.0.113.10/32"   # placeholder, put your own address here
+
+# Spread across 3 AZs. 2 is the minimum an ALB accepts.
+az_count = 3
+
+# --- Data tier -------------------------------------------------------------
+db_instance_class = "db.t3.micro"
+cache_node_type   = "cache.t3.micro"
+cache_node_count  = 1 # raise to 2 for a replica plus automatic failover
+
+# --- Lambda ----------------------------------------------------------------
+lambda_memory_mb            = 1024
+lambda_reserved_concurrency = 200
+
+# Pre-warmed environments. Costs about USD 0.015/hour each, so leave at 0 while
+# building and set it to 10-20 right before a load test.
+lambda_provisioned_concurrency = 0
+
+cache_ttl_seconds = 300

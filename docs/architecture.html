@@ -1,0 +1,635 @@
+<title>Cache-Aside Under Load</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap">
+
+<style>
+  :root {
+    --paper:      #eef1f4;
+    --surface:    #ffffff;
+    --ink:        #121821;
+    --ink-soft:   #48576a;
+    --slate:      #6f8095;
+    --rule:       #d3dae2;
+    --fast:       #0b7f74;
+    --fast-soft:  #d3ebe7;
+    --slow:       #b4502a;
+    --slow-soft:  #f3e0d6;
+    --vpc:        #8ea0b5;
+
+    --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --font-body:    "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+    --font-mono:    "JetBrains Mono", ui-monospace, "Cascadia Mono", monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:     #0d1319;
+      --surface:   #151d26;
+      --ink:       #e3eaf2;
+      --ink-soft:  #a7b6c6;
+      --slate:     #8497aa;
+      --rule:      #283340;
+      --fast:      #35c6b5;
+      --fast-soft: #10312f;
+      --slow:      #e58a58;
+      --slow-soft: #35211a;
+      --vpc:       #55697f;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper:     #0d1319;
+    --surface:   #151d26;
+    --ink:       #e3eaf2;
+    --ink-soft:  #a7b6c6;
+    --slate:     #8497aa;
+    --rule:      #283340;
+    --fast:      #35c6b5;
+    --fast-soft: #10312f;
+    --slow:      #e58a58;
+    --slow-soft: #35211a;
+    --vpc:       #55697f;
+  }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding-inline: 24px;
+    padding-block: 56px 80px;
+    display: flex;
+    flex-direction: column;
+    gap: 52px;
+  }
+
+  /* ---- masthead ---- */
+  header { display: flex; flex-direction: column; gap: 14px; }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--slate);
+  }
+
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(30px, 5.2vw, 46px);
+    line-height: 1.08;
+    letter-spacing: -0.02em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    max-width: 62ch;
+    font-size: 18px;
+    color: var(--ink-soft);
+    margin: 0;
+  }
+
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 22px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--slate);
+    border-top: 1px solid var(--rule);
+    padding-top: 14px;
+  }
+  .meta b { color: var(--ink-soft); font-weight: 500; }
+
+  /* ---- figures ---- */
+  figure {
+    margin: 0;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 26px 22px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .scroller { overflow-x: auto; }
+
+  figure svg {
+    display: block;
+    width: 100%;
+    min-width: 660px;
+    height: auto;
+    color: var(--ink-soft);
+  }
+
+  figcaption {
+    font-size: 14.5px;
+    color: var(--ink-soft);
+    max-width: 72ch;
+    border-top: 1px solid var(--rule);
+    padding-top: 14px;
+  }
+  figcaption b {
+    font-family: var(--font-display);
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  /* ---- prose ---- */
+  h2 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 22px;
+    letter-spacing: -0.01em;
+    margin: 0 0 4px;
+  }
+
+  section { display: flex; flex-direction: column; gap: 18px; }
+  section > p { margin: 0; max-width: 66ch; color: var(--ink-soft); }
+
+  dl.mechanisms {
+    margin: 0;
+    display: grid;
+    grid-template-columns: minmax(170px, 232px) 1fr;
+    gap: 0;
+    border-top: 1px solid var(--rule);
+  }
+  dl.mechanisms dt {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--ink);
+    padding: 15px 18px 15px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  dl.mechanisms dd {
+    margin: 0;
+    padding: 15px 0;
+    color: var(--ink-soft);
+    font-size: 15px;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14.5px;
+  }
+  caption { text-align: left; color: var(--slate); font-size: 13px; padding-bottom: 10px; }
+  th {
+    text-align: left;
+    font-family: var(--font-mono);
+    font-weight: 500;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--slate);
+    border-bottom: 1px solid var(--rule);
+    padding: 0 14px 9px 0;
+  }
+  td {
+    padding: 11px 14px 11px 0;
+    border-bottom: 1px solid var(--rule);
+    color: var(--ink-soft);
+    vertical-align: top;
+  }
+  td code { color: var(--ink); }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.88em;
+  }
+
+  .pill {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 2px 7px;
+    border-radius: 3px;
+  }
+  .pill.hit    { background: var(--fast-soft); color: var(--fast); }
+  .pill.bypass { background: var(--slow-soft); color: var(--slow); }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    padding-top: 18px;
+    font-size: 13.5px;
+    color: var(--slate);
+    max-width: 70ch;
+  }
+
+  @media (max-width: 620px) {
+    dl.mechanisms { grid-template-columns: 1fr; }
+    dl.mechanisms dt { border-bottom: none; padding-bottom: 0; }
+    dl.mechanisms dd { padding-top: 6px; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">ALB <div class="eyebrow">Lab 4 &middot; Diseño de Sistemas Escalables</div>middot; Lambda <div class="eyebrow">Lab 4 &middot; Diseño de Sistemas Escalables</div>middot; ElastiCache <div class="eyebrow">Lab 4 &middot; Diseño de Sistemas Escalables</div>middot; RDS</div>
+    <h1>Cache-Aside Under Load</h1>
+    <p class="standfirst">
+      An ALB fronting a VPC-attached Lambda that reads through ElastiCache and falls
+      back to RDS. The design exists to make one thing measurable: what a cache miss
+      actually costs when hundreds of requests arrive at once.
+    </p>
+    <div class="meta">
+      <span><b>Region</b> us-east-1</span>
+      <span><b>IaC</b> Terraform, 20 resources</span>
+      <span><b>State</b> s3://744998/lab4</span>
+      <span><b>Tests</b> PowerShell</span>
+    </div>
+  </header>
+
+  <!-- ================= FIGURE 1 : TOPOLOGY ================= -->
+  <figure>
+    <div class="scroller">
+      <svg viewBox="0 0 1000 500" role="img"
+           aria-label="Topology: clients reach an internet-facing ALB on port 80; the ALB invokes a Lambda through the Lambda API; the Lambda, attached to the default VPC, reaches ElastiCache on 6379 and RDS MySQL on 3306, each protected by a security group that admits only the Lambda security group.">
+        <defs>
+          <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5"
+                  markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+          </marker>
+          <marker id="ar-fast" viewBox="0 0 10 10" refX="9" refY="5"
+                  markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--fast)"/>
+          </marker>
+          <marker id="ar-slow" viewBox="0 0 10 10" refX="9" refY="5"
+                  markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--slow)"/>
+          </marker>
+        </defs>
+
+        <!-- VPC boundary -->
+        <rect x="150" y="40" width="828" height="424" rx="9"
+              fill="none" stroke="var(--vpc)" stroke-width="1.5" stroke-dasharray="7 5"/>
+        <text x="166" y="64" font-family="JetBrains Mono, monospace" font-size="12"
+              fill="var(--vpc)">default VPC &#183; 172.31.0.0/16 &#183; us-east-1a / 1b / 1c</text>
+
+        <!-- client -->
+        <rect x="18" y="206" width="114" height="76" rx="6"
+              fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="75" y="238" text-anchor="middle" font-family="Archivo, sans-serif"
+              font-size="14" font-weight="600" fill="currentColor">client</text>
+        <text x="75" y="258" text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="11" fill="var(--slate)">PowerShell</text>
+
+        <!-- ALB -->
+        <rect x="196" y="192" width="136" height="104" rx="6"
+              fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="264" y="224" text-anchor="middle" font-family="Archivo, sans-serif"
+              font-size="14" font-weight="600" fill="currentColor">ALB</text>
+        <text x="264" y="244" text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="11" fill="var(--slate)">internet-facing</text>
+        <text x="264" y="262" text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="11" fill="var(--slate)">3 subnets</text>
+        <text x="264" y="280" text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="11" fill="var(--slate)">target: lambda</text>
+
+        <!-- Lambda -->
+        <rect x="400" y="192" width="156" height="104" rx="6"
+              fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="478" y="224" text-anchor="middle" font-family="Archivo, sans-serif"
+              font-size="14" font-weight="600" fill="currentColor">Lambda</text>
+        <text x="478" y="244" text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="11" fill="var(--slate)">python3.12 &#183; 1024 MB</text>
+        <text x="478" y="262" text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="11" fill="var(--slate)">in-VPC &#183; LabRole</text>
+        <text x="478" y="280" text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="11" fill="var(--slate)">reserved 200</text>
+
+        <!-- sg-redis -->
+        <rect x="648" y="86" width="228" height="124" rx="7"
+              fill="none" stroke="var(--fast)" stroke-width="1.2" stroke-dasharray="4 4" opacity="0.75"/>
+        <text x="656" y="80" font-family="JetBrains Mono, monospace" font-size="11"
+              fill="var(--fast)">sg-redis</text>
+        <rect x="666" y="104" width="192" height="88" rx="6"
+              fill="var(--fast-soft)" stroke="var(--fast)" stroke-width="1.5"/>
+        <text x="762" y="134" text-anchor="middle" font-family="Archivo, sans-serif"
+              font-size="14" font-weight="600" fill="var(--fast)">ElastiCache</text>
+        <text x="762" y="154" text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="11" fill="var(--fast)">Redis 7.1 &#183; t3.micro</text>
+        <text x="762" y="172" text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="11" fill="var(--fast)">volatile-lru</text>
+
+        <!-- sg-rds -->
+        <rect x="648" y="278" width="228" height="124" rx="7"
+              fill="none" stroke="var(--slow)" stroke-width="1.2" stroke-dasharray="4 4" opacity="0.75"/>
+        <text x="656" y="272" font-family="JetBrains Mono, monospace" font-size="11"
+              fill="var(--slow)">sg-rds</text>
+        <rect x="666" y="296" width="192" height="88" rx="6"
+              fill="var(--slow-soft)" stroke="var(--slow)" stroke-width="1.5"/>
+        <text x="762" y="326" text-anchor="middle" font-family="Archivo, sans-serif"
+              font-size="14" font-weight="600" fill="var(--slow)">RDS</text>
+        <text x="762" y="346" text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="11" fill="var(--slow)">MySQL 8 &#183; t3.micro</text>
+        <text x="762" y="364" text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="11" fill="var(--slow)">not public</text>
+
+        <!-- client -> ALB -->
+        <line x1="134" y1="244" x2="188" y2="244" stroke="currentColor"
+              stroke-width="1.5" marker-end="url(#ar)"/>
+        <text x="161" y="234" text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="11" fill="var(--slate)">:80</text>
+
+        <!-- ALB -> Lambda -->
+        <line x1="334" y1="244" x2="392" y2="244" stroke="currentColor"
+              stroke-width="1.5" marker-end="url(#ar)"/>
+        <text x="363" y="234" text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="11" fill="var(--slate)">invoke</text>
+        <text x="363" y="266" text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="10" fill="var(--vpc)">Lambda API</text>
+
+        <!-- Lambda -> Redis -->
+        <line x1="560" y1="226" x2="660" y2="172" stroke="var(--fast)"
+              stroke-width="1.8" marker-end="url(#ar-fast)"/>
+        <text x="604" y="188" text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="11" fill="var(--fast)">:6379</text>
+
+        <!-- Lambda -> RDS -->
+        <line x1="560" y1="262" x2="660" y2="316" stroke="var(--slow)"
+              stroke-width="1.8" marker-end="url(#ar-slow)"/>
+        <text x="604" y="308" text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="11" fill="var(--slow)">:3306</text>
+
+        <!-- footnote inside VPC -->
+        <text x="166" y="440" font-family="JetBrains Mono, monospace" font-size="11"
+              fill="var(--vpc)">sg-lambda has no ingress rule &#8212; nothing ever connects to its ENIs</text>
+        <text x="166" y="422" font-family="JetBrains Mono, monospace" font-size="11"
+              fill="var(--vpc)">no NAT gateway &#8212; the function has no route to the internet</text>
+      </svg>
+    </div>
+    <figcaption>
+      <b>Figure 1 &mdash; Topology.</b> Each data-tier security group admits exactly one
+      source: <code>sg-lambda</code>. The ALB never opens a socket to the function; it
+      calls the Lambda API, which is why <code>sg-lambda</code> needs no ingress rule at
+      all. Nothing in the VPC can reach the internet, and nothing outside it can reach
+      Redis or MySQL.
+    </figcaption>
+  </figure>
+
+  <!-- ================= FIGURE 2 : THE COMPARISON ================= -->
+  <figure>
+    <div class="scroller">
+      <svg viewBox="0 0 1000 320" role="img"
+           aria-label="Three request paths drawn on one time axis: a cache hit finishes in a few milliseconds; a cache miss spends almost all its time in MySQL before writing the result back to Redis; a bypassed request spends the same time in MySQL and caches nothing.">
+        <defs>
+          <marker id="tick" viewBox="0 0 10 10" refX="9" refY="5"
+                  markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+          </marker>
+        </defs>
+
+        <!-- row labels -->
+        <text x="0" y="66" font-family="Archivo, sans-serif" font-size="13" font-weight="600"
+              fill="var(--fast)">cache HIT</text>
+        <text x="0" y="84" font-family="JetBrains Mono, monospace" font-size="10.5"
+              fill="var(--slate)">/product?id=42</text>
+
+        <text x="0" y="146" font-family="Archivo, sans-serif" font-size="13" font-weight="600"
+              fill="currentColor">cache MISS</text>
+        <text x="0" y="164" font-family="JetBrains Mono, monospace" font-size="10.5"
+              fill="var(--slate)">first read after flush</text>
+
+        <text x="0" y="226" font-family="Archivo, sans-serif" font-size="13" font-weight="600"
+              fill="var(--slow)">BYPASS</text>
+        <text x="0" y="244" font-family="JetBrains Mono, monospace" font-size="10.5"
+              fill="var(--slate)">&amp;nocache=1</text>
+
+        <!-- gridlines -->
+        <g stroke="var(--rule)" stroke-width="1">
+          <line x1="200" y1="40" x2="200" y2="272"/>
+          <line x1="390" y1="40" x2="390" y2="272"/>
+          <line x1="580" y1="40" x2="580" y2="272"/>
+          <line x1="770" y1="40" x2="770" y2="272"/>
+          <line x1="960" y1="40" x2="960" y2="272"/>
+        </g>
+
+        <!-- HIT bar : ~3 ms -->
+        <rect x="200" y="52" width="6" height="28" rx="1.5" fill="var(--fast)"/>
+        <line x1="212" y1="66" x2="246" y2="66" stroke="var(--fast)" stroke-width="1"/>
+        <text x="254" y="70" font-family="JetBrains Mono, monospace" font-size="11.5"
+              fill="var(--fast)">~3 ms &#183; one Redis GET, connection already open</text>
+
+        <!-- MISS bar -->
+        <rect x="200" y="132" width="4" height="28" rx="1.5" fill="var(--fast)"/>
+        <rect x="204" y="132" width="532" height="28" rx="1.5" fill="var(--slow-soft)"
+              stroke="var(--slow)" stroke-width="1.2"/>
+        <rect x="736" y="132" width="4" height="28" rx="1.5" fill="var(--fast)"/>
+        <text x="470" y="151" text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="11.5" fill="var(--slow)">MySQL: 4 correlated subqueries, unindexed &#8594; full scans</text>
+        <line x1="742" y1="146" x2="762" y2="146" stroke="var(--fast)" stroke-width="1"/>
+        <text x="770" y="150" font-family="JetBrains Mono, monospace" font-size="11"
+              fill="var(--fast)">SETEX ttl=300</text>
+
+        <!-- BYPASS bar -->
+        <rect x="200" y="212" width="532" height="28" rx="1.5" fill="var(--slow-soft)"
+              stroke="var(--slow)" stroke-width="1.2"/>
+        <text x="466" y="231" text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="11.5" fill="var(--slow)">same query, cache never consulted, nothing written back</text>
+
+        <!-- axis -->
+        <line x1="200" y1="272" x2="968" y2="272" stroke="currentColor"
+              stroke-width="1.4" marker-end="url(#tick)"/>
+        <g font-family="JetBrains Mono, monospace" font-size="11" fill="var(--slate)" text-anchor="middle">
+          <text x="200" y="292">0</text>
+          <text x="390" y="292">100</text>
+          <text x="580" y="292">200</text>
+          <text x="770" y="292">300</text>
+          <text x="905" y="292">ms &#8594;</text>
+        </g>
+      </svg>
+    </div>
+    <figcaption>
+      <b>Figure 2 &mdash; Where the time goes.</b> Drawn to a single scale, so the bars are
+      the argument: the hit is a sliver because the only work left is one Redis round trip
+      on a socket the execution environment already holds open. The axis shows the shape to
+      expect on <code>db.t3.micro</code> &mdash; every response reports its own real
+      <code>db_ms</code> and <code>total_ms</code>, which is what
+      <code>Test-Cache.ps1 -Compare</code> prints. The third row is the control: it is what
+      every request would cost with no cache at all, and it is the one that collapses first
+      under concurrency, because RDS runs out of connections long before Lambda runs out of
+      executions.
+    </figcaption>
+  </figure>
+
+  <!-- ================= FIGURE 3 : THE ALIAS CHAIN ================= -->
+  <figure>
+    <div class="scroller">
+      <svg viewBox="0 0 1000 220" role="img"
+           aria-label="The Lambda publishes a version, an alias named live points at it, the ALB target group attaches to the alias ARN, and the invoke permission is scoped to the same alias qualifier. Provisioned concurrency attaches to the alias as well.">
+        <defs>
+          <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5"
+                  markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+          </marker>
+        </defs>
+
+        <rect x="4" y="66" width="188" height="66" rx="6"
+              fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="98" y="92" text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="11.5" fill="currentColor">aws_lambda_function</text>
+        <text x="98" y="112" text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="11" fill="var(--slate)">publish = true</text>
+
+        <line x1="196" y1="99" x2="250" y2="99" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar2)"/>
+        <text x="223" y="90" text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="10" fill="var(--slate)">emits</text>
+
+        <rect x="254" y="66" width="150" height="66" rx="6"
+              fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="329" y="92" text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="11.5" fill="currentColor">version N</text>
+        <text x="329" y="112" text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="11" fill="var(--slate)">immutable</text>
+
+        <line x1="408" y1="99" x2="462" y2="99" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar2)"/>
+        <text x="435" y="90" text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="10" fill="var(--slate)">points at</text>
+
+        <rect x="466" y="60" width="164" height="78" rx="6"
+              fill="var(--fast-soft)" stroke="var(--fast)" stroke-width="1.8"/>
+        <text x="548" y="88" text-anchor="middle" font-family="Archivo, sans-serif"
+              font-size="13" font-weight="600" fill="var(--fast)">alias &#8220;live&#8221;</text>
+        <text x="548" y="108" text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="10.5" fill="var(--fast)">the only stable ARN</text>
+        <text x="548" y="125" text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="10.5" fill="var(--fast)">in the whole chain</text>
+
+        <line x1="634" y1="82" x2="700" y2="52" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar2)"/>
+        <line x1="634" y1="116" x2="700" y2="146" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar2)"/>
+
+        <rect x="704" y="22" width="292" height="58" rx="6"
+              fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="718" y="46" font-family="JetBrains Mono, monospace" font-size="11.5"
+              fill="currentColor">target_group_attachment</text>
+        <text x="718" y="65" font-family="JetBrains Mono, monospace" font-size="10.5"
+              fill="var(--slate)">target_id = alias ARN, not function ARN</text>
+
+        <rect x="704" y="118" width="292" height="58" rx="6"
+              fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="718" y="142" font-family="JetBrains Mono, monospace" font-size="11.5"
+              fill="currentColor">lambda_permission</text>
+        <text x="718" y="161" font-family="JetBrains Mono, monospace" font-size="10.5"
+              fill="var(--slate)">qualifier = &#8220;live&#8221; &#8212; must match</text>
+
+        <line x1="548" y1="142" x2="548" y2="192" stroke="var(--fast)" stroke-width="1.5"
+              stroke-dasharray="4 3" marker-end="url(#ar2)"/>
+        <text x="548" y="210" text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="11" fill="var(--fast)">provisioned_concurrency &#8212; cannot attach to $LATEST</text>
+      </svg>
+    </div>
+    <figcaption>
+      <b>Figure 3 &mdash; Why the alias exists.</b> Provisioned concurrency refuses to
+      attach to <code>$LATEST</code>, so the function publishes a version and everything
+      downstream targets the alias instead. Break any one link &mdash; point the target
+      group at the function ARN, or drop the <code>qualifier</code> from the permission
+      &mdash; and the stack still applies cleanly, then serves 502s.
+    </figcaption>
+  </figure>
+
+  <!-- ================= MECHANISMS ================= -->
+  <section>
+    <h2>What keeps latency flat as concurrency climbs</h2>
+    <p>
+      Lambda will happily scale to 200 concurrent executions. Every mechanism below exists
+      to make sure that RDS is not what happens next.
+    </p>
+    <dl class="mechanisms">
+      <dt>module-scope clients</dt>
+      <dd>
+        The MySQL and Redis connections are built once per execution environment and held
+        outside the handler. A warm invocation opens no sockets. Move that construction
+        inside <code>handler()</code> and 200 concurrent requests become 200 new MySQL
+        connections.
+      </dd>
+
+      <dt>volatile-lru</dt>
+      <dd>
+        A full cache evicts its coldest key instead of returning OOM errors. The failure
+        mode this avoids is silent: every write starts failing, every read falls through,
+        and the database absorbs the entire load while the cache still reports healthy.
+      </dd>
+
+      <dt>fail-open cache</dt>
+      <dd>
+        Every Redis call is wrapped and falls through to MySQL on error, reporting
+        <span class="pill hit">X-Cache: UNAVAILABLE</span>. A cache outage costs latency,
+        not availability.
+      </dd>
+
+      <dt>reserved = 200</dt>
+      <dd>
+        Half the account's 400-execution ceiling. It caps how hard the function can hit
+        RDS, and guarantees the capacity is there when it needs it.
+      </dd>
+
+      <dt>provisioned = 0</dt>
+      <dd>
+        Off by default because it bills hourly. Raise it to 10&ndash;20 immediately before a
+        load test to take cold starts out of the p99, then put it back.
+      </dd>
+
+      <dt>1024 MB</dt>
+      <dd>
+        CPU is allocated in proportion to memory, so this is a CPU setting wearing a memory
+        label. It roughly halves JSON and MySQL protocol parsing against the 128 MB default.
+      </dd>
+    </dl>
+  </section>
+
+  <!-- ================= ENDPOINTS ================= -->
+  <section>
+    <h2>Endpoints</h2>
+    <table>
+      <caption>Every response carries <code>source</code>, <code>cache_ms</code>, <code>db_ms</code> and <code>total_ms</code>.</caption>
+      <thead>
+        <tr><th>Route</th><th>Behaviour</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>/product?id=42</code></td>
+          <td>Cache-aside read. <span class="pill hit">HIT</span> or <span class="pill bypass">MISS</span> in <code>X-Cache</code>.</td>
+        </tr>
+        <tr>
+          <td><code>/product?id=42&amp;nocache=1</code></td>
+          <td>Identical query, cache skipped entirely. This is the control.</td>
+        </tr>
+        <tr>
+          <td><code>/init</code></td>
+          <td>Applies <code>sql/schema.sql</code>. Terraform invokes this once at the end of apply &mdash; RDS is private, so the in-VPC function is the only path to it.</td>
+        </tr>
+        <tr>
+          <td><code>/stats</code></td>
+          <td>Redis hit rate and key count, MySQL row counts and <code>Threads_connected</code>.</td>
+        </tr>
+        <tr>
+          <td><code>/flush</code></td>
+          <td>Empties the cache, so a run can start cold.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <footer>
+    The schema deliberately leaves <code>products.category</code> and
+    <code>reviews.product_id</code> unindexed. Indexing them would make the uncached path
+    fast and erase the effect this lab is built to measure &mdash; the comment saying so is
+    load-bearing, not a TODO.
+  </footer>
+
+</div>
